@@ -1,1 +1,528 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>REPORTS 批次报告下载</title>
+  <style>
+    :root {
+      --ink: #1f2933;
+      --muted: #64748b;
+      --line: #d8e0ea;
+      --soft: #f6f8fb;
+      --paper: #ffffff;
+      --accent: #0f766e;
+      --accent-2: #9f1239;
+      --warn: #b45309;
+      --shadow: 0 18px 48px rgba(25, 38, 52, 0.12);
+      font-family: Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #eef3f7;
+      color: var(--ink);
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 1px solid transparent;
+      border-radius: 7px;
+      padding: 10px 14px;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+      font-weight: 800;
+    }
+
+    button.secondary {
+      background: #fff;
+      color: var(--ink);
+      border-color: var(--line);
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 10px 11px;
+      color: var(--ink);
+      background: #fff;
+      min-width: 0;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: #405469;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .appHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 18px 22px;
+      background: #fff;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brandMark {
+      width: 42px;
+      height: 42px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      background: #e6f7f3;
+      color: #075e56;
+      border: 1px solid #a8d8cc;
+      font-weight: 900;
+    }
+
+    h1, h2, h3, p { margin: 0; }
+
+    h1 {
+      font-size: 24px;
+      line-height: 1.2;
+    }
+
+    .subtitle {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .navLinks {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .navLinks a {
+      color: #0f766e;
+      border: 1px solid #a8d8cc;
+      background: #ecfdf5;
+      border-radius: 7px;
+      padding: 8px 11px;
+      text-decoration: none;
+      font-weight: 800;
+    }
+
+    .adminLink {
+      display: none;
+    }
+
+    body.adminMode .adminLink {
+      display: inline-flex;
+    }
+
+    main {
+      width: min(1120px, calc(100% - 32px));
+      margin: 18px auto 42px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .panel {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .panelHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 15px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfdff;
+    }
+
+    .panelHeader h2 {
+      font-size: 18px;
+    }
+
+    .panelBody {
+      padding: 16px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .searchRow {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto;
+      gap: 10px;
+      align-items: end;
+    }
+
+    .grid2,
+    .grid3 {
+      display: grid;
+      gap: 12px;
+    }
+
+    .grid2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+    .status {
+      min-height: 22px;
+      color: var(--muted);
+      font-weight: 800;
+      font-size: 13px;
+    }
+
+    .noteBox {
+      border: 1px solid #f1d0a7;
+      background: #fff7ed;
+      color: #7c3f08;
+      border-radius: 7px;
+      padding: 10px 12px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .resultHeader {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: start;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .batchTitle {
+      display: grid;
+      gap: 5px;
+    }
+
+    .batchTitle strong {
+      font-size: 22px;
+      color: #111827;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid #cbd5e1;
+      border-radius: 999px;
+      padding: 5px 9px;
+      background: #f8fafc;
+      color: #475569;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .reportList {
+      display: grid;
+      gap: 10px;
+    }
+
+    .reportItem {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+    }
+
+    .reportMeta {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .reportMeta strong {
+      word-break: break-word;
+    }
+
+    .reportMeta span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .downloadLink {
+      text-decoration: none;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 7px;
+      padding: 9px 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .emptyState {
+      padding: 18px;
+      border: 1px dashed #cbd5e1;
+      border-radius: 8px;
+      color: var(--muted);
+      background: #f8fafc;
+      line-height: 1.6;
+    }
+
+    .adminOnly {
+      display: none;
+    }
+
+    body.adminMode .customerOnly {
+      display: none;
+    }
+
+    body.adminMode .adminOnly {
+      display: block;
+    }
+
+    .adminOnly .panelBody {
+      display: grid;
+    }
+
+    @media (max-width: 760px) {
+      .appHeader,
+      .searchRow,
+      .grid2,
+      .grid3,
+      .reportItem {
+        grid-template-columns: 1fr;
+      }
+
+      .appHeader {
+        display: grid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="appHeader">
+    <div class="brand">
+      <div class="brandMark">R</div>
+      <div>
+        <h1>REPORTS 批次报告下载</h1>
+        <p class="subtitle">客户输入批次号即可查询并下载对应报告</p>
+      </div>
+    </div>
+    <nav class="navLinks">
+      <a href="/">客户查询</a>
+      <a href="/admin" class="adminLink">内部上传</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="panel customerOnly">
+      <div class="panelHeader">
+        <h2>批次号查询</h2>
+        <span class="pill">Public</span>
+      </div>
+      <div class="panelBody">
+        <form class="searchRow" id="searchForm">
+          <label>批次号 / Batch No.
+            <input id="batchSearch" autocomplete="off" placeholder="请输入产品标签上的批次号">
+          </label>
+          <button type="submit">查询报告</button>
+        </form>
+        <div class="status" id="searchStatus"></div>
+        <div id="results"></div>
+      </div>
+    </section>
+
+    <section class="panel adminOnly">
+      <div class="panelHeader">
+        <h2>内部上传报告</h2>
+        <span class="pill">Admin</span>
+      </div>
+      <div class="panelBody">
+        <div class="noteBox">上传后客户可通过批次号查询并下载。建议同一批次的 COA、检测报告、灭菌报告等都上传到同一个批次号下。</div>
+        <form id="uploadForm" class="grid2">
+          <label>管理员口令
+            <input id="adminPassword" type="password" placeholder="ADMIN_PASSWORD">
+          </label>
+          <label>批次号 / Batch No.
+            <input id="uploadBatch" required placeholder="如 LOT20260601">
+          </label>
+          <label>产品名称
+            <input id="productName" placeholder="产品名称">
+          </label>
+          <label>货号 / Item No.
+            <input id="productCode" placeholder="货号">
+          </label>
+          <label>供应商
+            <input id="supplierName" placeholder="供应商名称">
+          </label>
+          <label>报告类型
+            <select id="reportType">
+              <option value="COA">COA</option>
+              <option value="Batch Report">Batch Report</option>
+              <option value="QC Report">QC Report</option>
+              <option value="Sterilization Report">Sterilization Report</option>
+              <option value="Other">Other</option>
+            </select>
+          </label>
+          <label style="grid-column:1/-1;">报告文件
+            <input id="reportFiles" type="file" multiple required accept=".pdf,.xlsx,.xls,.doc,.docx,.png,.jpg,.jpeg,application/pdf,image/*">
+          </label>
+          <div style="grid-column:1/-1;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <button type="submit">上传报告</button>
+            <span class="status" id="uploadStatus"></span>
+          </div>
+        </form>
+        <div class="noteBox">自动上传已预留接口：后续可把邮箱收到的附件，通过邮件自动化工具转发到系统。不要把邮箱主密码写进网站。</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const isAdmin = location.pathname.startsWith("/admin");
+    if (isAdmin) document.body.classList.add("adminMode");
+
+    function $(id) {
+      return document.getElementById(id);
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function fileSize(bytes) {
+      const size = Number(bytes || 0);
+      if (size > 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`;
+      if (size > 1024) return `${Math.round(size / 1024)} KB`;
+      return `${size} B`;
+    }
+
+    async function api(path, options = {}) {
+      if (location.protocol === "file:") {
+        throw new Error("当前打开的是本地文件页面，不能连接服务器。请打开部署后的线上地址。");
+      }
+      const response = await fetch(path, options);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "服务器请求失败");
+      return data;
+    }
+
+    function renderResults(data) {
+      const reports = data.reports || [];
+      if (!reports.length) {
+        $("results").innerHTML = `<div class="emptyState">没有找到这个批次号对应的报告。请确认批次号是否完整，或联系销售人员。</div>`;
+        return;
+      }
+      const first = reports[0];
+      $("results").innerHTML = `
+        <div class="resultHeader">
+          <div class="batchTitle">
+            <span class="pill">Batch No.</span>
+            <strong>${escapeHtml(data.batchNo)}</strong>
+            <span>${escapeHtml(first.productName || "")} ${first.productCode ? " / " + escapeHtml(first.productCode) : ""}</span>
+          </div>
+          <span class="pill">${reports.length} 份报告</span>
+        </div>
+        <div class="reportList" style="margin-top:12px;">
+          ${reports.map((report) => `
+            <article class="reportItem">
+              <div class="reportMeta">
+                <strong>${escapeHtml(report.reportType || "Report")} · ${escapeHtml(report.originalName)}</strong>
+                <span>供应商：${escapeHtml(report.supplierName || "未填写")} ｜ 上传时间：${escapeHtml(report.uploadedAtText || "")} ｜ 大小：${fileSize(report.size)}</span>
+              </div>
+              <a class="downloadLink" href="/api/reports/download/${encodeURIComponent(report.id)}">下载</a>
+            </article>
+          `).join("")}
+        </div>
+      `;
+    }
+
+    async function searchBatch(batchNo) {
+      const query = String(batchNo || "").trim();
+      if (!query) return;
+      $("searchStatus").textContent = "正在查询...";
+      $("results").innerHTML = "";
+      try {
+        const data = await api(`/api/reports?batch=${encodeURIComponent(query)}`);
+        $("searchStatus").textContent = data.reports?.length ? "查询完成" : "";
+        renderResults(data);
+        const next = new URL(location.href);
+        next.searchParams.set("batch", query);
+        history.replaceState(null, "", next);
+      } catch (error) {
+        $("searchStatus").textContent = error.message;
+      }
+    }
+
+    $("searchForm")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      searchBatch($("batchSearch").value);
+    });
+
+    $("uploadForm")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const files = Array.from($("reportFiles").files || []);
+      const adminPassword = $("adminPassword").value.trim();
+      if (!adminPassword) {
+        window.alert("请输入管理员口令");
+        return;
+      }
+      if (!files.length) {
+        window.alert("请选择报告文件");
+        return;
+      }
+      const form = new FormData();
+      form.append("batchNo", $("uploadBatch").value.trim());
+      form.append("productName", $("productName").value.trim());
+      form.append("productCode", $("productCode").value.trim());
+      form.append("supplierName", $("supplierName").value.trim());
+      form.append("reportType", $("reportType").value);
+      files.forEach((file) => form.append("files", file));
+      $("uploadStatus").textContent = "正在上传...";
+      try {
+        const data = await api("/api/admin/reports/upload", {
+          method: "POST",
+          headers: { "x-admin-code": adminPassword },
+          body: form
+        });
+        $("uploadStatus").textContent = `已上传 ${data.count} 份报告`;
+        $("batchSearch").value = $("uploadBatch").value.trim();
+        await searchBatch($("uploadBatch").value.trim());
+      } catch (error) {
+        $("uploadStatus").textContent = error.message;
+      }
+    });
+
+    const initialBatch = new URLSearchParams(location.search).get("batch") || "";
+    if (initialBatch && !isAdmin) {
+      $("batchSearch").value = initialBatch;
+      searchBatch(initialBatch);
+    }
+  </script>
+</body>
+</html>
 
