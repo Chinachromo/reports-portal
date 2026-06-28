@@ -7,10 +7,11 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "reports-20260628-filename-anywhere-batch";
+const APP_VERSION = "reports-20260628-auto-persistent-data";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "reports123";
 const INGEST_TOKEN = process.env.INGEST_TOKEN || "";
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
+const PERSISTENT_DATA_DIR = "/var/data";
+const DATA_DIR = process.env.DATA_DIR || (fssync.existsSync(PERSISTENT_DATA_DIR) ? PERSISTENT_DATA_DIR : path.join(__dirname, "data"));
 const PUBLIC_DIR = path.join(__dirname, "public");
 const REPORTS_FILE = path.join(DATA_DIR, "reports.json");
 const REPORT_FILES_DIR = path.join(DATA_DIR, "report-files");
@@ -415,6 +416,7 @@ async function handleApi(req, res, url) {
       ok: true,
       version: APP_VERSION,
       dataDir: DATA_DIR,
+      persistentStorage: DATA_DIR === PERSISTENT_DATA_DIR,
       ingestEnabled: Boolean(INGEST_TOKEN),
     });
   }
