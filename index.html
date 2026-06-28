@@ -394,7 +394,7 @@
         <span class="pill">Admin</span>
       </div>
       <div class="panelBody">
-        <div class="noteBox">可以一次上传多份报告。批次号留空时，系统会逐个文件识别 LOT.NO.、BATCH NO.、批号/批次号，并自动把同一批次归在一起。</div>
+        <div class="noteBox">可以一次上传多份报告。系统只按批次号归类；客户也只需要输入批次号即可下载对应报告。</div>
         <form id="uploadForm" class="grid2">
           <label>管理员口令
             <input id="adminPassword" type="password" placeholder="ADMIN_PASSWORD">
@@ -402,28 +402,18 @@
           <label>批次号 / Batch No.
             <input id="uploadBatch" placeholder="可留空自动归类；手动填写则所有文件归到这个批次">
           </label>
-          <label>产品名称
-            <input id="productName" placeholder="产品名称">
-          </label>
-          <label>货号 / Item No.
-            <input id="productCode" placeholder="货号">
-          </label>
-          <label>供应商
-            <input id="supplierName" placeholder="供应商名称">
-          </label>
-          <label>报告类型
-            <select id="reportType">
-              <option value="COA">COA</option>
-              <option value="Batch Report">Batch Report</option>
-              <option value="QC Report">QC Report</option>
-              <option value="Sterilization Report">Sterilization Report</option>
-              <option value="Other">Other</option>
+          <label>批次号识别方式
+            <select id="filenameMode">
+              <option value="leading" selected>文件名开头编号优先，如 10102019-001</option>
+              <option value="auto">只按 LOT / BATCH / 批号字样识别</option>
+              <option value="s-number">文件名里的 S 编号，如 S12312400</option>
+              <option value="wo-number">文件名里的 WO 编号，如 WO#2540711</option>
             </select>
           </label>
           <label style="grid-column:1/-1;">报告文件
             <input id="reportFiles" type="file" multiple required accept=".pdf,.xlsx,.xls,.doc,.docx,.png,.jpg,.jpeg,application/pdf,image/*">
           </label>
-          <div class="assistBox" id="detectHint" style="grid-column:1/-1;">推荐流程：先选择一批报告，点“自动识别并归类”，看一下每个批次下面有哪些文件；确认无误后再上传。</div>
+          <div class="assistBox" id="detectHint" style="grid-column:1/-1;">推荐流程：先选择一批报告，点“自动识别并归类”，看一下每个批次下面有哪些文件；确认无误后再上传。你这类文件名通常选择“文件名开头编号优先”。</div>
           <div style="grid-column:1/-1;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <button type="button" class="secondary" id="detectBatchButton">自动识别并归类</button>
             <button type="submit">上传报告</button>
@@ -475,13 +465,11 @@
         $("results").innerHTML = `<div class="emptyState">没有找到这个批次号对应的报告。请确认批次号是否完整，或联系销售人员。</div>`;
         return;
       }
-      const first = reports[0];
       $("results").innerHTML = `
         <div class="resultHeader">
           <div class="batchTitle">
             <span class="pill">Batch No.</span>
             <strong>${escapeHtml(data.batchNo)}</strong>
-            <span>${escapeHtml(first.productName || "")} ${first.productCode ? " / " + escapeHtml(first.productCode) : ""}</span>
           </div>
           <span class="pill">${reports.length} 份报告</span>
         </div>
@@ -489,8 +477,8 @@
           ${reports.map((report) => `
             <article class="reportItem">
               <div class="reportMeta">
-                <strong>${escapeHtml(report.reportType || "Report")} · ${escapeHtml(report.originalName)}</strong>
-                <span>供应商：${escapeHtml(report.supplierName || "未填写")} ｜ 上传时间：${escapeHtml(report.uploadedAtText || "")} ｜ 大小：${fileSize(report.size)}</span>
+                <strong>${escapeHtml(report.originalName)}</strong>
+                <span>上传时间：${escapeHtml(report.uploadedAtText || "")} ｜ 大小：${fileSize(report.size)}</span>
               </div>
               <a class="downloadLink" href="/api/reports/download/${encodeURIComponent(report.id)}">下载</a>
             </article>
@@ -517,6 +505,7 @@
     }
 
     function localBatchCandidatesFromNames(files) {
+      const mode = $("filenameMode")?.value || "leading";
       const text = files.map((file) => file.name).join(" ").replace(/[._-]+/g, " ");
       const patterns = [
         /(?:LOT|BATCH)\s*(?:NO|NUMBER|NUM)\s*[:：#.\-]*\s*([A-Za-z0-9][A-Za-z0-9._\-\/]{2,47})/gi,
@@ -525,6 +514,28 @@
         /\b(?:LOT|BATCH)[A-Za-z0-9._\-\/]{3,47}\b/gi
       ];
       const values = [];
+
+      if (mode === "leading") {
+        for (const file of files) {
+          const match = file.name.normalize("NFKC").match(/^\s*([A-Za-z]?\d{6,8}[-_]\d{2,5}[A-Za-z0-9._\-\/]*)\b/);
+          if (match?.[1]) values.push(match[1]);
+        }
+      }
+
+      if (mode === "s-number") {
+        for (const file of files) {
+          const matches = file.name.normalize("NFKC").match(/\bS\d{6,}\b/gi) || [];
+          values.push(...matches);
+        }
+      }
+
+      if (mode === "wo-number") {
+        for (const file of files) {
+          const matches = [...file.name.normalize("NFKC").matchAll(/\bWO\s*#?\s*([A-Za-z0-9._\-\/]{4,})/gi)];
+          values.push(...matches.map((match) => `WO${match[1]}`));
+        }
+      }
+
       for (const pattern of patterns) {
         let match;
         while ((match = pattern.exec(text)) !== null) {
@@ -580,6 +591,7 @@
       }
 
       const form = new FormData();
+      form.append("filenameMode", $("filenameMode").value);
       files.forEach((file) => form.append("files", file));
       $("uploadStatus").textContent = "正在识别批次号...";
       try {
@@ -647,10 +659,7 @@
       }
       const form = new FormData();
       form.append("batchNo", enteredBatch);
-      form.append("productName", $("productName").value.trim());
-      form.append("productCode", $("productCode").value.trim());
-      form.append("supplierName", $("supplierName").value.trim());
-      form.append("reportType", $("reportType").value);
+      form.append("filenameMode", $("filenameMode").value);
       files.forEach((file) => form.append("files", file));
       $("uploadStatus").textContent = "正在上传...";
       try {

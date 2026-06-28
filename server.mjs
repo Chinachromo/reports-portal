@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "reports-20260628-bulk-batch-grouping";
+const APP_VERSION = "reports-20260628-batch-only";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "reports123";
 const INGEST_TOKEN = process.env.INGEST_TOKEN || "";
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
@@ -162,6 +162,30 @@ function batchCandidatesFromText(text, source = "text") {
   return candidates;
 }
 
+function filenameBatchCandidates(fileName, mode = "leading") {
+  const name = String(fileName || "").normalize("NFKC");
+  const readableName = name.replace(/[._\-]+/g, " ");
+  const candidates = [...batchCandidatesFromText(readableName, "filename")];
+  const modeValue = mode || "leading";
+
+  if (modeValue === "leading" || modeValue === "auto") {
+    const leadingMatch = name.match(/^\s*([A-Za-z]?\d{6,8}[-_]\d{2,5}[A-Za-z0-9._\-\/]*)\b/);
+    if (leadingMatch) candidates.push({ value: leadingMatch[1], source: "filename-start", confidence: modeValue === "leading" ? 1.15 : 0.7 });
+  }
+
+  if (modeValue === "s-number") {
+    const matches = name.match(/\bS\d{6,}\b/gi) || [];
+    for (const item of matches) candidates.push({ value: item, source: "filename-s-number", confidence: 1.1 });
+  }
+
+  if (modeValue === "wo-number") {
+    const matches = [...name.matchAll(/\bWO\s*#?\s*([A-Za-z0-9._\-\/]{4,})/gi)];
+    for (const match of matches) candidates.push({ value: `WO${match[1]}`, source: "filename-wo-number", confidence: 1.1 });
+  }
+
+  return candidates;
+}
+
 function searchableTextFromFile(file) {
   const sample = sampleBuffer(file.body || Buffer.alloc(0));
   const latin = sample.toString("latin1");
@@ -207,14 +231,15 @@ function rankBatchCandidates(rawCandidates) {
   return { batchNo: isClear ? best.value : "", candidates };
 }
 
-function detectBatchFromFiles(files) {
+function detectBatchFromFiles(files, options = {}) {
   const detections = [];
   const allCandidates = [];
+  const filenameMode = options.filenameMode || "leading";
 
   for (const file of files) {
     const originalName = sanitizeFilename(file.filename);
     const fileCandidates = [
-      ...batchCandidatesFromText(originalName.replace(/[._\-]+/g, " "), "filename"),
+      ...filenameBatchCandidates(originalName, filenameMode),
       ...batchCandidatesFromText(searchableTextFromFile(file), "report"),
     ].map((candidate) => ({ ...candidate, fileName: originalName }));
     const fileRanking = rankBatchCandidates(fileCandidates);
@@ -305,10 +330,6 @@ function publicReport(record) {
   return {
     id: record.id,
     batchNo: record.batchNo,
-    productName: record.productName || "",
-    productCode: record.productCode || "",
-    supplierName: record.supplierName || "",
-    reportType: record.reportType || "Report",
     originalName: record.originalName || "report",
     size: record.size || 0,
     uploadedAt: record.uploadedAt || "",
@@ -330,16 +351,13 @@ function requireIngest(req, res) {
 
 async function saveUploadedReports(parts, source = "admin") {
   const manualBatchNo = partText(parts, "batchNo");
+  const filenameMode = partText(parts, "filenameMode") || "leading";
   const files = parts.filter((part) => (part.name === "files" || part.name === "file") && part.filename && part.body?.length);
   if (!files.length) throw new Error("请上传报告文件");
 
-  const productName = partText(parts, "productName");
-  const productCode = partText(parts, "productCode");
-  const supplierName = partText(parts, "supplierName");
-  const reportType = partText(parts, "reportType") || "Report";
   const reports = await readJson(REPORTS_FILE, []);
   const saved = [];
-  const perFileDetections = new Map(files.map((file) => [file, detectBatchFromFiles([file])]));
+  const perFileDetections = new Map(files.map((file) => [file, detectBatchFromFiles([file], { filenameMode })]));
   const unresolved = [];
 
   if (!manualBatchNo) {
@@ -372,10 +390,6 @@ async function saveUploadedReports(parts, source = "admin") {
       id,
       batchNo: batchNo.trim(),
       batchKey,
-      productName,
-      productCode,
-      supplierName,
-      reportType,
       originalName,
       storedName,
       contentType: file.contentType || mimeType(originalName),
@@ -457,7 +471,8 @@ async function handleApi(req, res, url) {
     const parts = parseMultipart(body, req.headers["content-type"] || "");
     const files = parts.filter((part) => (part.name === "files" || part.name === "file") && part.filename && part.body?.length);
     if (!files.length) return sendJson(res, 400, { error: "请先选择报告文件" });
-    return sendJson(res, 200, { ok: true, ...detectBatchFromFiles(files) });
+    const filenameMode = partText(parts, "filenameMode") || "leading";
+    return sendJson(res, 200, { ok: true, ...detectBatchFromFiles(files, { filenameMode }) });
   }
 
   if (url.pathname === "/api/ingest/report" && req.method === "POST") {
