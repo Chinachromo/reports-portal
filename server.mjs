@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "reports-20260628-batch-only";
+const APP_VERSION = "reports-20260628-filename-anywhere-batch";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "reports123";
 const INGEST_TOKEN = process.env.INGEST_TOKEN || "";
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
@@ -127,6 +127,7 @@ function cleanBatchCandidate(value) {
     .normalize("NFKC")
     .trim()
     .replace(/^[\s:：#.\-_/\\]+/, "")
+    .replace(/\.(pdf|docx?|xlsx?|xls|jpe?g|png)$/i, "")
     .replace(/[\s,，;；.。)）\]}】]+$/g, "")
     .replace(/[^A-Za-z0-9._\-\/]/g, "")
     .slice(0, 48);
@@ -168,9 +169,11 @@ function filenameBatchCandidates(fileName, mode = "leading") {
   const candidates = [...batchCandidatesFromText(readableName, "filename")];
   const modeValue = mode || "leading";
 
-  if (modeValue === "leading" || modeValue === "auto") {
-    const leadingMatch = name.match(/^\s*([A-Za-z]?\d{6,8}[-_]\d{2,5}[A-Za-z0-9._\-\/]*)\b/);
-    if (leadingMatch) candidates.push({ value: leadingMatch[1], source: "filename-start", confidence: modeValue === "leading" ? 1.15 : 0.7 });
+  if (modeValue === "leading") {
+    const dateCodeMatches = name.match(/\b[A-Za-z]?\d{6,8}[-_]\d{2,5}[A-Za-z0-9_-]*\b/g) || [];
+    for (const item of dateCodeMatches) {
+      candidates.push({ value: item, source: "filename-date-code", confidence: 1.15 });
+    }
   }
 
   if (modeValue === "s-number") {

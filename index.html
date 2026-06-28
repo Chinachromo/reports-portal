@@ -404,7 +404,7 @@
           </label>
           <label>批次号识别方式
             <select id="filenameMode">
-              <option value="leading" selected>文件名开头编号优先，如 10102019-001</option>
+              <option value="leading" selected>文件名中的批次号优先，如 01032021-003</option>
               <option value="auto">只按 LOT / BATCH / 批号字样识别</option>
               <option value="s-number">文件名里的 S 编号，如 S12312400</option>
               <option value="wo-number">文件名里的 WO 编号，如 WO#2540711</option>
@@ -413,7 +413,7 @@
           <label style="grid-column:1/-1;">报告文件
             <input id="reportFiles" type="file" multiple required accept=".pdf,.xlsx,.xls,.doc,.docx,.png,.jpg,.jpeg,application/pdf,image/*">
           </label>
-          <div class="assistBox" id="detectHint" style="grid-column:1/-1;">推荐流程：先选择一批报告，点“自动识别并归类”，看一下每个批次下面有哪些文件；确认无误后再上传。你这类文件名通常选择“文件名开头编号优先”。</div>
+          <div class="assistBox" id="detectHint" style="grid-column:1/-1;">推荐流程：先选择一批报告，点“自动识别并归类”，看一下每个批次下面有哪些文件；确认无误后再上传。你这类文件名通常选择“文件名中的批次号优先”。</div>
           <div style="grid-column:1/-1;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <button type="button" class="secondary" id="detectBatchButton">自动识别并归类</button>
             <button type="submit">上传报告</button>
@@ -517,8 +517,8 @@
 
       if (mode === "leading") {
         for (const file of files) {
-          const match = file.name.normalize("NFKC").match(/^\s*([A-Za-z]?\d{6,8}[-_]\d{2,5}[A-Za-z0-9._\-\/]*)\b/);
-          if (match?.[1]) values.push(match[1]);
+          const matches = file.name.normalize("NFKC").match(/\b[A-Za-z]?\d{6,8}[-_]\d{2,5}[A-Za-z0-9_-]*\b/g) || [];
+          values.push(...matches);
         }
       }
 
@@ -542,6 +542,7 @@
           const value = String(match[1] || match[0] || "")
             .trim()
             .replace(/^[\s:：#.\-_/\\]+/, "")
+            .replace(/\.(pdf|docx?|xlsx?|xls|jpe?g|png)$/i, "")
             .replace(/[\s,，;；.。)）\]}】]+$/g, "")
             .replace(/[^A-Za-z0-9._\-\/]/g, "");
           if (value.length >= 3 && !["report", "number", "num", "no", "date"].includes(value.toLowerCase())) values.push(value);
