@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: batch-report-portal
+    env: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: INGEST_TOKEN
+        sync: false
+      - key: DATA_DIR
+        value: /var/data
