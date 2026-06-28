@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "reports-20260627-mvp";
+const APP_VERSION = "reports-20260628-bulk-batch-grouping";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "reports123";
 const INGEST_TOKEN = process.env.INGEST_TOKEN || "";
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
@@ -80,6 +80,178 @@ function sanitizeFilename(value) {
     .replace(/\s+/g, " ")
     .trim();
   return name || "report";
+}
+
+function sampleBuffer(buffer, limit = 8 * 1024 * 1024) {
+  if (!Buffer.isBuffer(buffer) || buffer.length <= limit) return buffer;
+  const half = Math.floor(limit / 2);
+  return Buffer.concat([buffer.slice(0, half), Buffer.from("\n"), buffer.slice(buffer.length - half)]);
+}
+
+function compactSearchText(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .replace(/\0/g, " ")
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]+/g, " ")
+    .replace(/\s+/g, " ")
+    .slice(0, 600000);
+}
+
+function decodeUtf16Be(buffer) {
+  const sample = sampleBuffer(buffer, 2 * 1024 * 1024);
+  let text = "";
+  for (let index = 0; index + 1 < sample.length; index += 2) {
+    const code = sample.readUInt16BE(index);
+    if (code === 0) continue;
+    if (code >= 32 && code <= 0xfffd) text += String.fromCharCode(code);
+    if (text.length > 200000) break;
+  }
+  return text;
+}
+
+function extractPdfLiteralText(text) {
+  const matches = String(text || "").match(/\((?:\\.|[^\\)]){1,160}\)/g) || [];
+  return matches
+    .slice(0, 3000)
+    .map((item) =>
+      item
+        .slice(1, -1)
+        .replace(/\\([nrtbf()\\])/g, " ")
+        .replace(/\\\d{1,3}/g, " ")
+    )
+    .join(" ");
+}
+
+function cleanBatchCandidate(value) {
+  const cleaned = String(value || "")
+    .normalize("NFKC")
+    .trim()
+    .replace(/^[\s:：#.\-_/\\]+/, "")
+    .replace(/[\s,，;；.。)）\]}】]+$/g, "")
+    .replace(/[^A-Za-z0-9._\-\/]/g, "")
+    .slice(0, 48);
+  const rejectedWords = new Set(["report", "number", "num", "no", "date", "certificate", "product", "item", "name"]);
+  return rejectedWords.has(cleaned.toLowerCase()) ? "" : cleaned;
+}
+
+function batchCandidatesFromText(text, source = "text") {
+  const input = compactSearchText(text);
+  const candidates = [];
+  const labelledPatterns = [
+    /(?:LOT|BATCH)\s*(?:\.?\s*(?:NO|NUMBER|NUM)\.?)\s*[:：#.\-]*\s*([A-Za-z0-9][A-Za-z0-9._\-\/]{2,47})/gi,
+    /(?:LOT|BATCH)\s*[#：:]\s*([A-Za-z0-9][A-Za-z0-9._\-\/]{2,47})/gi,
+    /(?:批号|批次号|生产批号)\s*[:：#.\-]*\s*([A-Za-z0-9][A-Za-z0-9._\-\/]{2,47})/gi,
+  ];
+
+  for (const pattern of labelledPatterns) {
+    let match;
+    while ((match = pattern.exec(input)) !== null) {
+      const value = cleanBatchCandidate(match[1]);
+      if (value && value.length >= 3) candidates.push({ value, source, confidence: source === "filename" ? 0.72 : 0.88 });
+    }
+  }
+
+  if (source === "filename") {
+    const genericMatches = input.match(/\b(?:LOT|BATCH)[A-Za-z0-9._\-\/]{3,47}\b/gi) || [];
+    for (const item of genericMatches) {
+      const value = cleanBatchCandidate(item);
+      if (value && value.length >= 4) candidates.push({ value, source, confidence: 0.62 });
+    }
+  }
+
+  return candidates;
+}
+
+function searchableTextFromFile(file) {
+  const sample = sampleBuffer(file.body || Buffer.alloc(0));
+  const latin = sample.toString("latin1");
+  return [
+    file.filename || "",
+    sample.toString("utf8"),
+    latin,
+    decodeUtf16Be(sample),
+    extractPdfLiteralText(latin),
+  ].join("\n");
+}
+
+function rankBatchCandidates(rawCandidates) {
+  const scoreByKey = new Map();
+
+  for (const candidate of rawCandidates) {
+    const value = cleanBatchCandidate(candidate.value);
+    if (!value) continue;
+    const key = normalizeBatch(value);
+    if (!key || key.length < 3) continue;
+    const existing = scoreByKey.get(key) || { value, score: 0, count: 0, sources: new Set(), files: new Set() };
+    existing.score += candidate.confidence || 0.5;
+    existing.count += 1;
+    existing.sources.add(candidate.source || "text");
+    if (candidate.fileName) existing.files.add(candidate.fileName);
+    scoreByKey.set(key, existing);
+  }
+
+  const candidates = [...scoreByKey.values()]
+    .map((item) => ({
+      value: item.value,
+      score: Number(item.score.toFixed(2)),
+      count: item.count,
+      sources: [...item.sources],
+      files: [...item.files],
+    }))
+    .sort((a, b) => b.score - a.score || b.count - a.count || a.value.localeCompare(b.value))
+    .slice(0, 10);
+
+  const best = candidates[0] || null;
+  const second = candidates[1] || null;
+  const isClear = Boolean(best && (!second || best.score >= second.score + 0.5 || normalizeBatch(best.value) === normalizeBatch(second.value)));
+  return { batchNo: isClear ? best.value : "", candidates };
+}
+
+function detectBatchFromFiles(files) {
+  const detections = [];
+  const allCandidates = [];
+
+  for (const file of files) {
+    const originalName = sanitizeFilename(file.filename);
+    const fileCandidates = [
+      ...batchCandidatesFromText(originalName.replace(/[._\-]+/g, " "), "filename"),
+      ...batchCandidatesFromText(searchableTextFromFile(file), "report"),
+    ].map((candidate) => ({ ...candidate, fileName: originalName }));
+    const fileRanking = rankBatchCandidates(fileCandidates);
+    allCandidates.push(...fileCandidates);
+    detections.push({
+      originalName,
+      batchNo: fileRanking.batchNo,
+      candidates: fileRanking.candidates.map((candidate) => candidate.value).slice(0, 8),
+    });
+  }
+
+  const aggregate = rankBatchCandidates(allCandidates);
+  return { ...aggregate, detections, groups: detectedGroups(detections) };
+}
+
+function detectedGroups(detections) {
+  const groups = new Map();
+  for (const item of detections) {
+    if (!item.batchNo) continue;
+    const key = normalizeBatch(item.batchNo);
+    const group = groups.get(key) || { batchNo: item.batchNo, files: [] };
+    group.files.push(item.originalName);
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort((a, b) => a.batchNo.localeCompare(b.batchNo));
+}
+
+function savedGroups(records) {
+  const groups = new Map();
+  for (const record of records) {
+    const key = record.batchKey || normalizeBatch(record.batchNo);
+    const group = groups.get(key) || { batchNo: record.batchNo, count: 0, reports: [] };
+    group.count += 1;
+    group.reports.push(publicReport(record));
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort((a, b) => a.batchNo.localeCompare(b.batchNo));
 }
 
 function mimeType(fileName, fallback = "application/octet-stream") {
@@ -157,20 +329,39 @@ function requireIngest(req, res) {
 }
 
 async function saveUploadedReports(parts, source = "admin") {
-  const batchNo = partText(parts, "batchNo");
-  if (!batchNo) throw new Error("请填写批次号");
+  const manualBatchNo = partText(parts, "batchNo");
   const files = parts.filter((part) => (part.name === "files" || part.name === "file") && part.filename && part.body?.length);
   if (!files.length) throw new Error("请上传报告文件");
 
-  const batchKey = normalizeBatch(batchNo);
   const productName = partText(parts, "productName");
   const productCode = partText(parts, "productCode");
   const supplierName = partText(parts, "supplierName");
   const reportType = partText(parts, "reportType") || "Report";
   const reports = await readJson(REPORTS_FILE, []);
   const saved = [];
+  const perFileDetections = new Map(files.map((file) => [file, detectBatchFromFiles([file])]));
+  const unresolved = [];
+
+  if (!manualBatchNo) {
+    for (const file of files) {
+      const detection = perFileDetections.get(file);
+      if (!detection?.batchNo) {
+        const originalName = sanitizeFilename(file.filename);
+        const candidates = detection?.candidates?.map((item) => item.value).slice(0, 5) || [];
+        unresolved.push(candidates.length ? `${originalName}（可能是：${candidates.join("、")}）` : originalName);
+      }
+    }
+  }
+
+  if (unresolved.length) {
+    throw new Error(`有 ${unresolved.length} 个文件无法明确识别批次号：${unresolved.slice(0, 5).join("；")}。请把这些文件单独上传并手动填写批次号。`);
+  }
 
   for (const file of files) {
+    const detection = perFileDetections.get(file);
+    const batchNo = (manualBatchNo || detection?.batchNo || "").trim();
+    if (!batchNo) throw new Error("没有自动识别到批次号，请手动填写后再上传。");
+    const batchKey = normalizeBatch(batchNo);
     const id = crypto.randomUUID();
     const originalName = sanitizeFilename(file.filename);
     const ext = path.extname(originalName).toLowerCase();
@@ -191,13 +382,14 @@ async function saveUploadedReports(parts, source = "admin") {
       size: file.body.length,
       uploadedAt: new Date().toISOString(),
       source,
+      autoDetectedBatch: !manualBatchNo,
     };
     reports.push(record);
     saved.push(record);
   }
 
   await writeJson(REPORTS_FILE, reports);
-  return saved;
+  return { saved, groups: savedGroups(saved) };
 }
 
 async function handleApi(req, res, url) {
@@ -248,9 +440,24 @@ async function handleApi(req, res, url) {
     const body = await readBody(req);
     const parts = parseMultipart(body, req.headers["content-type"] || "");
     return queuedWrite(async () => {
-      const saved = await saveUploadedReports(parts, "admin");
-      sendJson(res, 200, { ok: true, count: saved.length, reports: saved.map(publicReport) });
+      const result = await saveUploadedReports(parts, "admin");
+      sendJson(res, 200, {
+        ok: true,
+        batchNo: result.saved[0]?.batchNo || "",
+        count: result.saved.length,
+        groups: result.groups,
+        reports: result.saved.map(publicReport),
+      });
     });
+  }
+
+  if (url.pathname === "/api/admin/reports/detect" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    const body = await readBody(req);
+    const parts = parseMultipart(body, req.headers["content-type"] || "");
+    const files = parts.filter((part) => (part.name === "files" || part.name === "file") && part.filename && part.body?.length);
+    if (!files.length) return sendJson(res, 400, { error: "请先选择报告文件" });
+    return sendJson(res, 200, { ok: true, ...detectBatchFromFiles(files) });
   }
 
   if (url.pathname === "/api/ingest/report" && req.method === "POST") {
@@ -258,8 +465,8 @@ async function handleApi(req, res, url) {
     const body = await readBody(req);
     const parts = parseMultipart(body, req.headers["content-type"] || "");
     return queuedWrite(async () => {
-      const saved = await saveUploadedReports(parts, "ingest");
-      sendJson(res, 200, { ok: true, count: saved.length, reports: saved.map(publicReport) });
+      const result = await saveUploadedReports(parts, "ingest");
+      sendJson(res, 200, { ok: true, count: result.saved.length, groups: result.groups, reports: result.saved.map(publicReport) });
     });
   }
 
