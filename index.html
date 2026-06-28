@@ -395,6 +395,7 @@
       </div>
       <div class="panelBody">
         <div class="noteBox">可以一次上传多份报告。系统只按批次号归类；客户也只需要输入批次号即可下载对应报告。</div>
+        <div class="assistBox" id="storageSummary">输入管理员口令后，系统会自动统计已经保存的报告数量和批次数。</div>
         <form id="uploadForm" class="grid2">
           <label>管理员口令
             <input id="adminPassword" type="password" placeholder="ADMIN_PASSWORD">
@@ -572,6 +573,22 @@
       `;
     }
 
+    function formatBytes(value) {
+      const size = Number(value || 0);
+      if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`;
+      if (size >= 1024) return `${(size / 1024).toFixed(1)} KB`;
+      return `${size} B`;
+    }
+
+    function updateStorageSummary(stats) {
+      const target = $("storageSummary");
+      if (!target || !stats) return;
+      const missingText = Number(stats.missingFiles || 0) > 0
+        ? `，其中 ${stats.missingFiles} 份文件缺失`
+        : "";
+      target.innerHTML = `服务器当前已保存 <strong>${stats.savedFiles ?? stats.totalReports ?? 0}</strong> 份报告，归入 <strong>${stats.batchCount || 0}</strong> 个批次，总大小 ${formatBytes(stats.totalBytes)}${missingText}。`;
+    }
+
     async function detectBatchFromFiles() {
       const files = Array.from($("reportFiles").files || []);
       const adminPassword = $("adminPassword").value.trim();
@@ -623,21 +640,28 @@
       return $("uploadBatch").value.trim();
     }
 
-    async function listSavedBatches() {
+    async function listSavedBatches(options = {}) {
       const adminPassword = $("adminPassword").value.trim();
       if (!adminPassword) {
-        window.alert("请输入管理员口令");
-        return;
+        if (!options.silent) window.alert("请输入管理员口令");
+        return null;
       }
-      $("uploadStatus").textContent = "正在读取已保存批次...";
+      if (!options.silent) $("uploadStatus").textContent = "正在读取已保存批次...";
       try {
         const data = await api("/api/admin/reports/list", {
           headers: { "x-admin-code": adminPassword }
         });
-        renderGroupSummary(data.groups || [], `已保存批次，共 ${data.count || 0} 份报告`);
-        $("uploadStatus").textContent = data.count ? "已读取保存列表" : "当前没有保存的报告";
+        updateStorageSummary(data.stats || { totalReports: data.count || 0, savedFiles: data.count || 0, batchCount: (data.groups || []).length });
+        if (!options.summaryOnly) {
+          renderGroupSummary(data.groups || [], `已保存批次，共 ${data.count || 0} 份报告`);
+        }
+        if (!options.silent) $("uploadStatus").textContent = data.count ? "已读取保存列表" : "当前没有保存的报告";
+        return data;
       } catch (error) {
-        $("uploadStatus").textContent = error.message;
+        if (!options.silent) $("uploadStatus").textContent = error.message;
+        const target = $("storageSummary");
+        if (target && !options.silent) target.textContent = "保存统计读取失败，请确认管理员口令是否正确。";
+        return null;
       }
     }
 
@@ -652,6 +676,14 @@
 
     $("listReportsButton")?.addEventListener("click", () => {
       listSavedBatches();
+    });
+
+    $("adminPassword")?.addEventListener("change", () => {
+      listSavedBatches({ silent: true, summaryOnly: true });
+    });
+
+    $("adminPassword")?.addEventListener("blur", () => {
+      if ($("adminPassword").value.trim()) listSavedBatches({ silent: true, summaryOnly: true });
     });
 
     $("reportFiles")?.addEventListener("change", () => {
@@ -693,16 +725,17 @@
           body: form
         });
         const groups = data.groups || [];
+        updateStorageSummary(data.stats);
         renderGroupSummary(groups, "已上传并归类");
         if (groups.length > 1) {
           $("uploadBatch").value = "";
-          $("uploadStatus").textContent = `已上传 ${data.count} 份报告，自动归类到 ${groups.length} 个批次`;
+          $("uploadStatus").textContent = `已保存 ${data.count} 份报告，跳过 ${data.skippedCount || 0} 份重复文件，自动归类到 ${groups.length} 个批次`;
           $("batchSearch").value = groups[0]?.batchNo || "";
           if (groups[0]?.batchNo) await searchBatch(groups[0].batchNo);
         } else {
           const savedBatch = groups[0]?.batchNo || data.batchNo || $("uploadBatch").value.trim();
           $("uploadBatch").value = savedBatch;
-          $("uploadStatus").textContent = `已上传 ${data.count} 份报告，批次号：${savedBatch}`;
+          $("uploadStatus").textContent = `已保存 ${data.count} 份报告，跳过 ${data.skippedCount || 0} 份重复文件，批次号：${savedBatch}`;
           $("batchSearch").value = savedBatch;
           await searchBatch(savedBatch);
         }

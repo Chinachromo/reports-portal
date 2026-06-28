@@ -3,12 +3,11 @@ import fs from "node:fs/promises";
 import fssync from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "reports-20260628-query-saved-batches-fix";
+const APP_VERSION = "reports-20260628-saved-count-dedupe";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "reports123";
 const INGEST_TOKEN = process.env.INGEST_TOKEN || "";
 const PERSISTENT_DATA_DIR = "/var/data";
@@ -83,6 +82,10 @@ function sanitizeFilename(value) {
     .replace(/\s+/g, " ")
     .trim();
   return name || "report";
+}
+
+function fileHash(buffer) {
+  return crypto.createHash("sha256").update(buffer).digest("hex");
 }
 
 function sampleBuffer(buffer, limit = 8 * 1024 * 1024) {
@@ -286,6 +289,38 @@ function savedGroups(records) {
   return [...groups.values()].sort((a, b) => a.batchNo.localeCompare(b.batchNo));
 }
 
+async function savedReportStats(records, groups = savedGroups(records)) {
+  let savedFiles = 0;
+  let missingFiles = 0;
+  let totalBytes = 0;
+
+  for (const record of records) {
+    if (!record.storedName) {
+      missingFiles += 1;
+      continue;
+    }
+    try {
+      const stat = await fs.stat(path.join(REPORT_FILES_DIR, record.storedName));
+      if (stat.isFile()) {
+        savedFiles += 1;
+        totalBytes += stat.size;
+      } else {
+        missingFiles += 1;
+      }
+    } catch {
+      missingFiles += 1;
+    }
+  }
+
+  return {
+    totalReports: records.length,
+    savedFiles,
+    missingFiles,
+    batchCount: groups.length,
+    totalBytes,
+  };
+}
+
 function mimeType(fileName, fallback = "application/octet-stream") {
   const ext = path.extname(fileName).toLowerCase();
   return {
@@ -344,6 +379,32 @@ function publicReport(record) {
   };
 }
 
+async function findDuplicateReport(reports, batchKey, originalName, body) {
+  const hash = fileHash(body);
+  for (const record of reports) {
+    const sameBatch = (record.batchKey || normalizeBatch(record.batchNo)) === batchKey;
+    const sameName = sanitizeFilename(record.originalName || "") === originalName;
+    if (!sameBatch || !sameName) continue;
+
+    if (record.contentHash) {
+      if (record.contentHash === hash) return { record, hash };
+      continue;
+    }
+
+    if (!record.storedName) continue;
+    try {
+      const storedPath = path.join(REPORT_FILES_DIR, record.storedName);
+      const existing = await fs.readFile(storedPath);
+      const existingHash = fileHash(existing);
+      record.contentHash = existingHash;
+      if (existingHash === hash) return { record, hash };
+    } catch {
+      // Missing old files should not block a fresh upload.
+    }
+  }
+  return { record: null, hash };
+}
+
 function requireAdmin(req, res) {
   if (req.headers["x-admin-code"] === ADMIN_PASSWORD) return true;
   sendJson(res, 403, { error: "请输入正确的管理员口令" });
@@ -364,6 +425,7 @@ async function saveUploadedReports(parts, source = "admin") {
 
   const reports = await readJson(REPORTS_FILE, []);
   const saved = [];
+  const skipped = [];
   const perFileDetections = new Map(files.map((file) => [file, detectBatchFromFiles([file], { filenameMode })]));
   const unresolved = [];
 
@@ -387,8 +449,18 @@ async function saveUploadedReports(parts, source = "admin") {
     const batchNo = (manualBatchNo || detection?.batchNo || "").trim();
     if (!batchNo) throw new Error("没有自动识别到批次号，请手动填写后再上传。");
     const batchKey = normalizeBatch(batchNo);
-    const id = crypto.randomUUID();
     const originalName = sanitizeFilename(file.filename);
+    const { record: duplicate, hash } = await findDuplicateReport(reports, batchKey, originalName, file.body);
+    if (duplicate) {
+      skipped.push({
+        batchNo: batchNo.trim(),
+        originalName,
+        reason: "同批次、同文件名、同内容，已跳过重复上传",
+      });
+      continue;
+    }
+
+    const id = crypto.randomUUID();
     const ext = path.extname(originalName).toLowerCase();
     const storedName = `${id}${ext || ".bin"}`;
     const storedPath = path.join(REPORT_FILES_DIR, storedName);
@@ -399,6 +471,7 @@ async function saveUploadedReports(parts, source = "admin") {
       batchKey,
       originalName,
       storedName,
+      contentHash: hash,
       contentType: file.contentType || mimeType(originalName),
       size: file.body.length,
       uploadedAt: new Date().toISOString(),
@@ -410,7 +483,13 @@ async function saveUploadedReports(parts, source = "admin") {
   }
 
   await writeJson(REPORTS_FILE, reports);
-  return { saved, groups: savedGroups(saved) };
+  const allGroups = savedGroups(reports);
+  return {
+    saved,
+    skipped,
+    groups: savedGroups(saved),
+    stats: await savedReportStats(reports, allGroups),
+  };
 }
 
 async function handleApi(req, res, url) {
@@ -446,10 +525,12 @@ async function handleApi(req, res, url) {
   if (url.pathname === "/api/admin/reports/list" && req.method === "GET") {
     if (!requireAdmin(req, res)) return;
     const reports = await readJson(REPORTS_FILE, []);
+    const groups = savedGroups(reports);
     return sendJson(res, 200, {
       ok: true,
       count: reports.length,
-      groups: savedGroups(reports),
+      groups,
+      stats: await savedReportStats(reports, groups),
     });
   }
 
@@ -484,7 +565,10 @@ async function handleApi(req, res, url) {
         ok: true,
         batchNo: result.saved[0]?.batchNo || "",
         count: result.saved.length,
+        skippedCount: result.skipped.length,
+        skipped: result.skipped,
         groups: result.groups,
+        stats: result.stats,
         reports: result.saved.map(publicReport),
       });
     });
@@ -506,7 +590,15 @@ async function handleApi(req, res, url) {
     const parts = parseMultipart(body, req.headers["content-type"] || "");
     return queuedWrite(async () => {
       const result = await saveUploadedReports(parts, "ingest");
-      sendJson(res, 200, { ok: true, count: result.saved.length, groups: result.groups, reports: result.saved.map(publicReport) });
+      sendJson(res, 200, {
+        ok: true,
+        count: result.saved.length,
+        skippedCount: result.skipped.length,
+        skipped: result.skipped,
+        groups: result.groups,
+        stats: result.stats,
+        reports: result.saved.map(publicReport),
+      });
     });
   }
 
