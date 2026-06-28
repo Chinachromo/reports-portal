@@ -3,11 +3,12 @@ import fs from "node:fs/promises";
 import fssync from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "reports-20260628-auto-persistent-data";
+const APP_VERSION = "reports-20260628-query-saved-batches-fix";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "reports123";
 const INGEST_TOKEN = process.env.INGEST_TOKEN || "";
 const PERSISTENT_DATA_DIR = "/var/data";
@@ -69,7 +70,8 @@ async function readBody(req, limit = 80 * 1024 * 1024) {
 function normalizeBatch(value) {
   return String(value || "")
     .normalize("NFKC")
-    .replace(/[\s_\-–—/\\]+/g, "")
+    .replace(/\.(pdf|docx?|xlsx?|xls|jpe?g|png)$/i, "")
+    .replace(/[^A-Za-z0-9]+/g, "")
     .trim()
     .toLowerCase();
 }
@@ -274,7 +276,8 @@ function detectedGroups(detections) {
 function savedGroups(records) {
   const groups = new Map();
   for (const record of records) {
-    const key = record.batchKey || normalizeBatch(record.batchNo);
+    const key = normalizeBatch(record.batchNo) || record.batchKey;
+    if (!key) continue;
     const group = groups.get(key) || { batchNo: record.batchNo, count: 0, reports: [] };
     group.count += 1;
     group.reports.push(publicReport(record));
@@ -427,10 +430,27 @@ async function handleApi(req, res, url) {
     if (!batchKey) return sendJson(res, 400, { error: "请输入批次号" });
     const reports = await readJson(REPORTS_FILE, []);
     const matches = reports
-      .filter((record) => record.batchKey === batchKey)
+      .filter((record) => {
+        const keys = [
+          record.batchKey,
+          normalizeBatch(record.batchNo),
+          normalizeBatch(record.originalName),
+        ].filter(Boolean);
+        return keys.some((key) => key === batchKey || key.includes(batchKey));
+      })
       .sort((a, b) => String(b.uploadedAt).localeCompare(String(a.uploadedAt)))
       .map(publicReport);
     return sendJson(res, 200, { batchNo, reports: matches });
+  }
+
+  if (url.pathname === "/api/admin/reports/list" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    const reports = await readJson(REPORTS_FILE, []);
+    return sendJson(res, 200, {
+      ok: true,
+      count: reports.length,
+      groups: savedGroups(reports),
+    });
   }
 
   if (url.pathname.startsWith("/api/reports/download/") && req.method === "GET") {

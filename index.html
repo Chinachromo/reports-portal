@@ -416,6 +416,7 @@
           <div class="assistBox" id="detectHint" style="grid-column:1/-1;">推荐流程：先选择一批报告，点“自动识别并归类”，看一下每个批次下面有哪些文件；确认无误后再上传。你这类文件名通常选择“文件名中的批次号优先”。</div>
           <div style="grid-column:1/-1;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <button type="button" class="secondary" id="detectBatchButton">自动识别并归类</button>
+            <button type="button" class="secondary" id="listReportsButton">查看已保存批次</button>
             <button type="submit">上传报告</button>
             <span class="status" id="uploadStatus"></span>
           </div>
@@ -622,6 +623,24 @@
       return $("uploadBatch").value.trim();
     }
 
+    async function listSavedBatches() {
+      const adminPassword = $("adminPassword").value.trim();
+      if (!adminPassword) {
+        window.alert("请输入管理员口令");
+        return;
+      }
+      $("uploadStatus").textContent = "正在读取已保存批次...";
+      try {
+        const data = await api("/api/admin/reports/list", {
+          headers: { "x-admin-code": adminPassword }
+        });
+        renderGroupSummary(data.groups || [], `已保存批次，共 ${data.count || 0} 份报告`);
+        $("uploadStatus").textContent = data.count ? "已读取保存列表" : "当前没有保存的报告";
+      } catch (error) {
+        $("uploadStatus").textContent = error.message;
+      }
+    }
+
     $("searchForm")?.addEventListener("submit", (event) => {
       event.preventDefault();
       searchBatch($("batchSearch").value);
@@ -629,6 +648,10 @@
 
     $("detectBatchButton")?.addEventListener("click", () => {
       detectBatchFromFiles();
+    });
+
+    $("listReportsButton")?.addEventListener("click", () => {
+      listSavedBatches();
     });
 
     $("reportFiles")?.addEventListener("change", () => {
