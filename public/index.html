@@ -205,6 +205,42 @@
       line-height: 1.5;
     }
 
+    .assistBox {
+      border: 1px solid #bfdbfe;
+      background: #eff6ff;
+      color: #1e3a8a;
+      border-radius: 7px;
+      padding: 10px 12px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .miniGroupList {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .miniGroupItem {
+      display: grid;
+      gap: 4px;
+      border: 1px solid #bfdbfe;
+      background: #ffffff;
+      border-radius: 7px;
+      padding: 8px 10px;
+      color: #1f2933;
+    }
+
+    .miniGroupItem strong {
+      color: #0f766e;
+    }
+
+    .miniGroupItem span {
+      color: var(--muted);
+      font-size: 12px;
+      word-break: break-word;
+    }
+
     .resultHeader {
       display: flex;
       justify-content: space-between;
@@ -358,13 +394,13 @@
         <span class="pill">Admin</span>
       </div>
       <div class="panelBody">
-        <div class="noteBox">上传后客户可通过批次号查询并下载。建议同一批次的 COA、检测报告、灭菌报告等都上传到同一个批次号下。</div>
+        <div class="noteBox">可以一次上传多份报告。批次号留空时，系统会逐个文件识别 LOT.NO.、BATCH NO.、批号/批次号，并自动把同一批次归在一起。</div>
         <form id="uploadForm" class="grid2">
           <label>管理员口令
             <input id="adminPassword" type="password" placeholder="ADMIN_PASSWORD">
           </label>
           <label>批次号 / Batch No.
-            <input id="uploadBatch" required placeholder="如 LOT20260601">
+            <input id="uploadBatch" placeholder="可留空自动归类；手动填写则所有文件归到这个批次">
           </label>
           <label>产品名称
             <input id="productName" placeholder="产品名称">
@@ -387,7 +423,9 @@
           <label style="grid-column:1/-1;">报告文件
             <input id="reportFiles" type="file" multiple required accept=".pdf,.xlsx,.xls,.doc,.docx,.png,.jpg,.jpeg,application/pdf,image/*">
           </label>
+          <div class="assistBox" id="detectHint" style="grid-column:1/-1;">推荐流程：先选择一批报告，点“自动识别并归类”，看一下每个批次下面有哪些文件；确认无误后再上传。</div>
           <div style="grid-column:1/-1;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <button type="button" class="secondary" id="detectBatchButton">自动识别并归类</button>
             <button type="submit">上传报告</button>
             <span class="status" id="uploadStatus"></span>
           </div>
@@ -478,9 +516,117 @@
       }
     }
 
+    function localBatchCandidatesFromNames(files) {
+      const text = files.map((file) => file.name).join(" ").replace(/[._-]+/g, " ");
+      const patterns = [
+        /(?:LOT|BATCH)\s*(?:NO|NUMBER|NUM)\s*[:：#.\-]*\s*([A-Za-z0-9][A-Za-z0-9._\-\/]{2,47})/gi,
+        /(?:LOT|BATCH)\s*[#：:]\s*([A-Za-z0-9][A-Za-z0-9._\-\/]{2,47})/gi,
+        /(?:批号|批次号|生产批号)\s*[:：#.\-]*\s*([A-Za-z0-9][A-Za-z0-9._\-\/]{2,47})/gi,
+        /\b(?:LOT|BATCH)[A-Za-z0-9._\-\/]{3,47}\b/gi
+      ];
+      const values = [];
+      for (const pattern of patterns) {
+        let match;
+        while ((match = pattern.exec(text)) !== null) {
+          const value = String(match[1] || match[0] || "")
+            .trim()
+            .replace(/^[\s:：#.\-_/\\]+/, "")
+            .replace(/[\s,，;；.。)）\]}】]+$/g, "")
+            .replace(/[^A-Za-z0-9._\-\/]/g, "");
+          if (value.length >= 3 && !["report", "number", "num", "no", "date"].includes(value.toLowerCase())) values.push(value);
+        }
+      }
+      return [...new Set(values)];
+    }
+
+    function renderGroupSummary(groups, title = "识别结果") {
+      const target = $("detectHint");
+      if (!target) return;
+      if (!groups?.length) {
+        target.innerHTML = "还没有识别到明确批次号。可以检查报告是否为扫描图片，或手动填写批次号后上传。";
+        return;
+      }
+      target.innerHTML = `
+        <strong>${escapeHtml(title)}：共 ${groups.length} 个批次</strong>
+        <div class="miniGroupList">
+          ${groups.map((group) => `
+            <div class="miniGroupItem">
+              <strong>${escapeHtml(group.batchNo)} ｜ ${escapeHtml(group.count || group.files?.length || 0)} 份</strong>
+              <span>${escapeHtml((group.files || group.reports?.map((report) => report.originalName) || []).join("、"))}</span>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+
+    async function detectBatchFromFiles() {
+      const files = Array.from($("reportFiles").files || []);
+      const adminPassword = $("adminPassword").value.trim();
+      if (!files.length) {
+        window.alert("请先选择报告文件");
+        return "";
+      }
+
+      const localCandidates = localBatchCandidatesFromNames(files);
+      if (localCandidates.length === 1 && !$("uploadBatch").value.trim()) {
+        $("uploadBatch").value = localCandidates[0];
+      }
+
+      if (!adminPassword) {
+        $("uploadStatus").textContent = localCandidates.length
+          ? `文件名里可能是：${localCandidates.join("、")}。如需读取报告内容，请先输入管理员口令。`
+          : "请输入管理员口令后，系统才能读取报告内容识别批次号。";
+        return $("uploadBatch").value.trim();
+      }
+
+      const form = new FormData();
+      files.forEach((file) => form.append("files", file));
+      $("uploadStatus").textContent = "正在识别批次号...";
+      try {
+        const data = await api("/api/admin/reports/detect", {
+          method: "POST",
+          headers: { "x-admin-code": adminPassword },
+          body: form
+        });
+        renderGroupSummary(data.groups || [], "自动归类预览");
+        if ((data.groups || []).length > 1) {
+          $("uploadBatch").value = "";
+          $("uploadStatus").textContent = `已识别 ${data.groups.length} 个批次，请确认归类后直接上传。`;
+          return "";
+        }
+        if (data.batchNo) {
+          $("uploadBatch").value = data.batchNo;
+          $("uploadStatus").textContent = `已识别批次号：${data.batchNo}`;
+          return data.batchNo;
+        }
+        const candidates = (data.candidates || []).map((item) => item.value).slice(0, 5);
+        $("uploadStatus").textContent = candidates.length
+          ? `识别到多个可能编号：${candidates.join("、")}。请手动填写正确批次号。`
+          : "没有识别到批次号，请手动填写。";
+      } catch (error) {
+        $("uploadStatus").textContent = error.message;
+      }
+      return $("uploadBatch").value.trim();
+    }
+
     $("searchForm")?.addEventListener("submit", (event) => {
       event.preventDefault();
       searchBatch($("batchSearch").value);
+    });
+
+    $("detectBatchButton")?.addEventListener("click", () => {
+      detectBatchFromFiles();
+    });
+
+    $("reportFiles")?.addEventListener("change", () => {
+      const files = Array.from($("reportFiles").files || []);
+      if (!$("uploadBatch").value.trim()) {
+        const candidates = localBatchCandidatesFromNames(files);
+        if (candidates.length === 1) {
+          $("uploadBatch").value = candidates[0];
+          $("uploadStatus").textContent = `已从文件名识别：${candidates[0]}`;
+        }
+      }
     });
 
     $("uploadForm")?.addEventListener("submit", async (event) => {
@@ -495,8 +641,12 @@
         window.alert("请选择报告文件");
         return;
       }
+      const enteredBatch = $("uploadBatch").value.trim();
+      if (!enteredBatch) {
+        $("uploadStatus").textContent = "未填写批次号，系统会逐个文件自动识别并归类...";
+      }
       const form = new FormData();
-      form.append("batchNo", $("uploadBatch").value.trim());
+      form.append("batchNo", enteredBatch);
       form.append("productName", $("productName").value.trim());
       form.append("productCode", $("productCode").value.trim());
       form.append("supplierName", $("supplierName").value.trim());
@@ -509,9 +659,20 @@
           headers: { "x-admin-code": adminPassword },
           body: form
         });
-        $("uploadStatus").textContent = `已上传 ${data.count} 份报告`;
-        $("batchSearch").value = $("uploadBatch").value.trim();
-        await searchBatch($("uploadBatch").value.trim());
+        const groups = data.groups || [];
+        renderGroupSummary(groups, "已上传并归类");
+        if (groups.length > 1) {
+          $("uploadBatch").value = "";
+          $("uploadStatus").textContent = `已上传 ${data.count} 份报告，自动归类到 ${groups.length} 个批次`;
+          $("batchSearch").value = groups[0]?.batchNo || "";
+          if (groups[0]?.batchNo) await searchBatch(groups[0].batchNo);
+        } else {
+          const savedBatch = groups[0]?.batchNo || data.batchNo || $("uploadBatch").value.trim();
+          $("uploadBatch").value = savedBatch;
+          $("uploadStatus").textContent = `已上传 ${data.count} 份报告，批次号：${savedBatch}`;
+          $("batchSearch").value = savedBatch;
+          await searchBatch(savedBatch);
+        }
       } catch (error) {
         $("uploadStatus").textContent = error.message;
       }
@@ -525,4 +686,3 @@
   </script>
 </body>
 </html>
-
