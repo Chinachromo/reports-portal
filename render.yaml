@@ -12,3 +12,7 @@ services:
         sync: false
       - key: DATA_DIR
         value: /var/data
+    disk:
+      name: reports-data
+      mountPath: /var/data
+      sizeGB: 1
