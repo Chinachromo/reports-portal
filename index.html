@@ -6,15 +6,18 @@
   <title>REPORTS 批次报告下载</title>
   <style>
     :root {
-      --ink: #1f2933;
-      --muted: #64748b;
-      --line: #d8e0ea;
-      --soft: #f6f8fb;
+      --ink: #162231;
+      --muted: #66778a;
+      --line: #d9e3ee;
+      --soft: #f4f7fa;
       --paper: #ffffff;
-      --accent: #0f766e;
+      --accent: #0b7a75;
+      --accent-dark: #075d59;
       --accent-2: #9f1239;
       --warn: #b45309;
-      --shadow: 0 18px 48px rgba(25, 38, 52, 0.12);
+      --navy: #12344d;
+      --gold: #c58a2c;
+      --shadow: 0 18px 42px rgba(18, 52, 77, 0.12);
       font-family: Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
       color: var(--ink);
     }
@@ -24,7 +27,9 @@
     body {
       margin: 0;
       min-height: 100vh;
-      background: #eef3f7;
+      background:
+        linear-gradient(180deg, rgba(18, 52, 77, 0.08) 0, rgba(18, 52, 77, 0) 220px),
+        #eef3f7;
       color: var(--ink);
     }
 
@@ -38,11 +43,12 @@
     button {
       border: 1px solid transparent;
       border-radius: 7px;
-      padding: 10px 14px;
+      padding: 11px 16px;
       background: var(--accent);
       color: #fff;
       cursor: pointer;
       font-weight: 800;
+      box-shadow: 0 8px 18px rgba(11, 122, 117, 0.16);
     }
 
     button.secondary {
@@ -57,7 +63,7 @@
       width: 100%;
       border: 1px solid var(--line);
       border-radius: 7px;
-      padding: 10px 11px;
+      padding: 12px 12px;
       color: var(--ink);
       background: #fff;
       min-width: 0;
@@ -76,32 +82,54 @@
       align-items: center;
       justify-content: space-between;
       gap: 18px;
-      padding: 18px 22px;
-      background: #fff;
+      padding: 16px 24px;
+      background: rgba(255, 255, 255, 0.96);
       border-bottom: 1px solid var(--line);
+      box-shadow: 0 6px 24px rgba(18, 52, 77, 0.07);
     }
 
     .brand {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 14px;
     }
 
     .brandMark {
-      width: 42px;
-      height: 42px;
-      border-radius: 9px;
+      width: 190px;
+      height: 62px;
+      border-radius: 8px;
       display: grid;
       place-items: center;
-      background: #e6f7f3;
-      color: #075e56;
-      border: 1px solid #a8d8cc;
+      background: #fff;
+      border: 1px solid #dbe7f2;
+      box-shadow: 0 10px 22px rgba(18, 52, 77, 0.12);
+      overflow: hidden;
+    }
+
+    .brandMark img {
+      width: 168px;
+      height: auto;
+      display: block;
+    }
+
+    .brandName {
+      color: var(--navy);
+      font-size: 13px;
       font-weight: 900;
+      letter-spacing: 0;
+    }
+
+    .brandSubline {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
     }
 
     h1, h2, h3, p { margin: 0; }
 
     h1 {
+      margin-top: 3px;
       font-size: 24px;
       line-height: 1.2;
     }
@@ -120,7 +148,7 @@
     }
 
     .navLinks a {
-      color: #0f766e;
+      color: var(--accent-dark);
       border: 1px solid #a8d8cc;
       background: #ecfdf5;
       border-radius: 7px;
@@ -139,9 +167,28 @@
 
     main {
       width: min(1120px, calc(100% - 32px));
-      margin: 18px auto 42px;
+      margin: 22px auto 42px;
       display: grid;
       gap: 16px;
+    }
+
+    .portalIntro {
+      display: grid;
+      gap: 10px;
+      padding: 18px 18px 4px;
+    }
+
+    .portalIntro h2 {
+      color: var(--navy);
+      font-size: 22px;
+      line-height: 1.25;
+    }
+
+    .portalIntro p {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.5;
     }
 
     .panel {
@@ -157,9 +204,9 @@
       align-items: center;
       justify-content: space-between;
       gap: 14px;
-      padding: 15px 16px;
+      padding: 16px 18px;
       border-bottom: 1px solid var(--line);
-      background: #fbfdff;
+      background: linear-gradient(90deg, #fbfdff, #f7fbfa);
     }
 
     .panelHeader h2 {
@@ -167,7 +214,7 @@
     }
 
     .panelBody {
-      padding: 16px;
+      padding: 18px;
       display: grid;
       gap: 16px;
     }
@@ -258,7 +305,7 @@
 
     .batchTitle strong {
       font-size: 22px;
-      color: #111827;
+      color: var(--navy);
     }
 
     .pill {
@@ -285,7 +332,7 @@
       align-items: center;
       border: 1px solid var(--line);
       border-radius: 8px;
-      padding: 12px;
+      padding: 14px;
       background: #fff;
     }
 
@@ -310,9 +357,10 @@
       background: var(--accent);
       color: #fff;
       border-radius: 7px;
-      padding: 9px 12px;
+      padding: 10px 14px;
       font-weight: 900;
       white-space: nowrap;
+      box-shadow: 0 8px 18px rgba(11, 122, 117, 0.16);
     }
 
     .emptyState {
@@ -322,6 +370,17 @@
       color: var(--muted);
       background: #f8fafc;
       line-height: 1.6;
+    }
+
+    .siteFooter {
+      width: min(1120px, calc(100% - 32px));
+      margin: -18px auto 30px;
+      color: var(--muted);
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
     }
 
     .adminOnly {
@@ -352,14 +411,34 @@
       .appHeader {
         display: grid;
       }
+
+      .brand {
+        align-items: start;
+      }
+
+      .brandMark {
+        width: 160px;
+        height: 52px;
+      }
+
+      .brandMark img {
+        width: 142px;
+      }
+
+      .portalIntro {
+        padding-inline: 4px;
+      }
     }
   </style>
 </head>
 <body>
   <header class="appHeader">
     <div class="brand">
-      <div class="brandMark">R</div>
+      <div class="brandMark">
+        <img src="/promsxlent-logo.jpg" alt="PROMSXLENT">
+      </div>
       <div>
+        <div class="brandName">PROMSXLENT</div>
         <h1>REPORTS 批次报告下载</h1>
         <p class="subtitle">客户输入批次号即可查询并下载对应报告</p>
       </div>
@@ -372,9 +451,13 @@
 
   <main>
     <section class="panel customerOnly">
+      <div class="portalIntro">
+        <h2>Product Batch Report Portal</h2>
+        <p>PROMSXLENT 产品批次资料查询入口</p>
+      </div>
       <div class="panelHeader">
-        <h2>批次号查询</h2>
-        <span class="pill">Public</span>
+        <h2>批次号查询 / Batch Lookup</h2>
+        <span class="pill">Official Reports</span>
       </div>
       <div class="panelBody">
         <form class="searchRow" id="searchForm">
@@ -426,6 +509,10 @@
       </div>
     </section>
   </main>
+  <footer class="siteFooter">
+    <span>PROMSXLENT | Product Documentation</span>
+    <span>www.pmsclean.com</span>
+  </footer>
 
   <script>
     const isAdmin = location.pathname.startsWith("/admin");
