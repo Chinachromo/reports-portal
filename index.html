@@ -725,19 +725,20 @@
           body: form
         });
         const groups = data.groups || [];
+        const unresolvedText = data.unresolvedCount ? `，${data.unresolvedCount} 个文件未识别未上传` : "";
         updateStorageSummary(data.stats);
         renderGroupSummary(groups, "已上传并归类");
         if (groups.length > 1) {
           $("uploadBatch").value = "";
-          $("uploadStatus").textContent = `已保存 ${data.count} 份报告，跳过 ${data.skippedCount || 0} 份重复文件，自动归类到 ${groups.length} 个批次`;
+          $("uploadStatus").textContent = `已保存 ${data.count} 份报告，跳过 ${data.skippedCount || 0} 份重复文件，自动归类到 ${groups.length} 个批次${unresolvedText}`;
           $("batchSearch").value = groups[0]?.batchNo || "";
           if (groups[0]?.batchNo) await searchBatch(groups[0].batchNo);
         } else {
           const savedBatch = groups[0]?.batchNo || data.batchNo || $("uploadBatch").value.trim();
           $("uploadBatch").value = savedBatch;
-          $("uploadStatus").textContent = `已保存 ${data.count} 份报告，跳过 ${data.skippedCount || 0} 份重复文件，批次号：${savedBatch}`;
+          $("uploadStatus").textContent = `已保存 ${data.count} 份报告，跳过 ${data.skippedCount || 0} 份重复文件，批次号：${savedBatch || "未识别"}${unresolvedText}`;
           $("batchSearch").value = savedBatch;
-          await searchBatch(savedBatch);
+          if (savedBatch) await searchBatch(savedBatch);
         }
       } catch (error) {
         $("uploadStatus").textContent = error.message;

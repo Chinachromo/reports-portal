@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
-const APP_VERSION = "reports-20260628-saved-count-dedupe";
+const APP_VERSION = "reports-20260701-partial-upload";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "reports123";
 const INGEST_TOKEN = process.env.INGEST_TOKEN || "";
 const PERSISTENT_DATA_DIR = "/var/data";
@@ -440,14 +440,10 @@ async function saveUploadedReports(parts, source = "admin") {
     }
   }
 
-  if (unresolved.length) {
-    throw new Error(`有 ${unresolved.length} 个文件无法明确识别批次号：${unresolved.slice(0, 5).join("；")}。请把这些文件单独上传并手动填写批次号。`);
-  }
-
   for (const file of files) {
     const detection = perFileDetections.get(file);
     const batchNo = (manualBatchNo || detection?.batchNo || "").trim();
-    if (!batchNo) throw new Error("没有自动识别到批次号，请手动填写后再上传。");
+    if (!batchNo) continue;
     const batchKey = normalizeBatch(batchNo);
     const originalName = sanitizeFilename(file.filename);
     const { record: duplicate, hash } = await findDuplicateReport(reports, batchKey, originalName, file.body);
@@ -482,11 +478,16 @@ async function saveUploadedReports(parts, source = "admin") {
     saved.push(record);
   }
 
+  if (!saved.length && !skipped.length && unresolved.length) {
+    throw new Error(`有 ${unresolved.length} 个文件无法明确识别批次号：${unresolved.slice(0, 5).join("；")}。请把这些文件单独上传并手动填写批次号。`);
+  }
+
   await writeJson(REPORTS_FILE, reports);
   const allGroups = savedGroups(reports);
   return {
     saved,
     skipped,
+    unresolved,
     groups: savedGroups(saved),
     stats: await savedReportStats(reports, allGroups),
   };
@@ -567,6 +568,8 @@ async function handleApi(req, res, url) {
         count: result.saved.length,
         skippedCount: result.skipped.length,
         skipped: result.skipped,
+        unresolvedCount: result.unresolved.length,
+        unresolved: result.unresolved,
         groups: result.groups,
         stats: result.stats,
         reports: result.saved.map(publicReport),
@@ -595,6 +598,8 @@ async function handleApi(req, res, url) {
         count: result.saved.length,
         skippedCount: result.skipped.length,
         skipped: result.skipped,
+        unresolvedCount: result.unresolved.length,
+        unresolved: result.unresolved,
         groups: result.groups,
         stats: result.stats,
         reports: result.saved.map(publicReport),
